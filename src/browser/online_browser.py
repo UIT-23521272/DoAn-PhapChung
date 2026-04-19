@@ -55,7 +55,7 @@ class Context_generator:
                 tag.decompose()
             text = re.sub(r'\s+', ' ', soup.get_text()).strip()
             return text if len(text) >= 50 and self.is_text_clean(text) else None
-        except:
+        except Exception:
             return None
 
 
