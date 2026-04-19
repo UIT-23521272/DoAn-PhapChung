@@ -1,6 +1,6 @@
 import json
 import time
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from typing import Dict, Optional, Tuple
 
 from browser.prompts import CVE_SUMMARY_PROMPT,JUDGE_SUMMARY_PROMPT,TSHARK_SUMMARY_PROMPT,FINAL_CVE_AGGREGATION_PROMPT,FINAL_JUDGE_AGGREGATION_PROMPT
@@ -25,8 +25,8 @@ class SummarizationHandler:
 
         try:
             messages = [
-                HumanMessage(role="system", content=prompt),
-                HumanMessage(role="user", content=content[:max_chars])
+                SystemMessage(content=prompt),
+                HumanMessage(content=content[:max_chars])
             ]
             response = self.llm.invoke(messages)
             usage = response.response_metadata.get("token_usage", {})
@@ -44,8 +44,8 @@ class SummarizationHandler:
 
         try:
             messages = [
-                HumanMessage(role="system", content=prompt),
-                HumanMessage(role="user", content=json.dumps(summaries))
+                SystemMessage(content=prompt),
+                HumanMessage(content=json.dumps(summaries))
             ]
             response = self.llm.invoke(messages)
             usage = response.response_metadata.get("token_usage", {})
