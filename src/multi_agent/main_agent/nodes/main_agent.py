@@ -121,7 +121,8 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
     except BadRequestError as e:
         length_exceeded = True
         print(f"Error: {e}")
-        msg = {"role": "assistant", "content": f"Error: {e}"}
+        from langchain_core.messages import AIMessage
+        msg = AIMessage(content=f"Context length exceeded. Forcing final answer based on available information. Error: {e}")
     except Exception as e:
         final_msg = f"An unexpected error occurred: {str(e)}"
         return {
@@ -135,8 +136,8 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
         input_token_count = state.inputTokens + msg.response_metadata.get("token_usage", {}).get("prompt_tokens", 0)
         output_token_count = state.outputTokens + msg.response_metadata.get("token_usage", {}).get("completion_tokens", 0)
     else:
-        input_token_count = 0
-        output_token_count = 0
+        input_token_count = state.inputTokens
+        output_token_count = state.outputTokens
 
     return {
         "messages": [msg],

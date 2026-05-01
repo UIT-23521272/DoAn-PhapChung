@@ -106,25 +106,99 @@ TShark is part of the [Wireshark](https://www.wireshark.org/) network analysis s
 
 ### 2. Configure Environment Variables
 
-From the `src/` folder:
+From the `src/` folder, copy the example file:
 
 ```bash
 cd src
-cp .env_example .env
+cp .env.example .env   # Linux/macOS
+copy .env.example .env  # Windows
 ```
 
-Edit `.env` and fill in the necessary variables:
-- LLM provider and model name. There is a specific section in the following detailing how to provide model and provider
-- API keys (e.g., OpenAI, Google Custom Search, etc.). Remind that the OpenAI Key is always required, even if another LLM is used, because It is used to produce embeddings
-- Context window (default 128K), depends on the LLM used 
-- Dataset: CFA or test. By specifying the former, CFA-bench with its 20 events is executed, otherwise it is executed the more recent set of 10 events created as test set. The latter contains only events related to vulnerabilities discovered in 2025
-- Number of executions: specify how many iterations on the benchmark
-
-Save the file before proceeding.
+See step 3 below for which keys to fill in.
 
 ---
 
-### 3. Run the Agent
+### 3. Configure the `.env` file
+
+Rename `.env.example` to `.env` and fill in the keys that match your chosen model:
+
+| Variable | Required when |
+|---|---|
+| `OPENAI_API_KEY` | Always (used for embeddings, or as the LLM) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | `MODEL=google/gemini-*` |
+| `DEEPSEEK_API_KEY` | `MODEL=deepseek/*` |
+| `ANTHROPIC_API_KEY` | `MODEL=anthropic/*` |
+| `GOOGLE_API_KEY_1` + `GOOGLE_CSE_ID` | Web-search tool (online research) |
+| `NVD_API_KEY` | Optional — raises NVD rate limit 5 → 50 req/30 s |
+
+---
+
+### 4. Run the Agent
+
+All commands are run from the `src/` directory.
+
+#### Quick reference — CLI options
+
+```
+python run_agent.py [options]
+
+  --event   N          Run a single event by index (e.g. 0)
+  --events  LIST|all   Comma-separated indices or "all"  (e.g. 0,4,3)
+  --model   PROVIDER/MODEL  Override the MODEL env var at runtime
+  --dataset CFA|test   Which benchmark to use (default: CFA)
+  --runs    N          Number of full passes over the selected events (default: 1)
+  --output  FILE       Save per-event results as JSON
+  --report  FILE       Save the final summary report to a text file
+  --metrics            Print a per-event breakdown table at the end
+  --verbose            Enable verbose logging
+  --log     FILE       Write execution log to a file
+```
+
+#### Phase 1 — Verify a single event
+
+```bash
+python run_agent.py --event 0 --model google/gemini-2.5-pro
+```
+
+#### Phase 2 — Quick validation on a handful of events
+
+```bash
+python run_agent.py --events 0,4,3 --model deepseek/deepseek-r1 --metrics
+```
+
+#### Phase 3 — Full benchmark (all events, save results)
+
+```bash
+# CFA benchmark (20 events)
+python run_agent.py --events all --model deepseek/deepseek-r1 \
+    --output results/cfa_results.json \
+    --report results/cfa_summary.txt \
+    --metrics
+
+# Test-set benchmark (10 events, 2025 CVEs)
+python run_agent.py --events all --dataset test --model google/gemini-2.5-pro \
+    --output results/test_results.json \
+    --report results/test_summary.txt
+```
+
+#### Multiple runs (statistical averaging)
+
+```bash
+python run_agent.py --events all --runs 3 --model openai/gpt-4o \
+    --output results/multi_run.json
+```
+
+The script will, for each selected event:
+
+1. Instantiate a new LangGraph agent with a fresh memory store
+2. Run forensic analysis on the corresponding `.pcap` file
+3. Write step-by-step reasoning to `results/run[n]/log_steps/steps_event<id>.txt`
+4. Append the structured report to `results/run[n]/result.txt`
+5. Save per-event metrics (tokens, cost, latency) to `results/run[n]/event_results.json`
+
+At the end, a summary is printed (and optionally saved) containing accuracy metrics, F1/MCC scores, total token counts, and estimated cost.
+
+#### Testing on non-malicious traffic
 
 Run the following command from the `src/` directory:
 
@@ -145,7 +219,7 @@ The script will:
 
 At the end, it prints performance metrics (e.g., accuracy) to `stdout` and to the file `results/run[n]/result.txt` for each execution.
 
-#### Testing the agent on non-malicious traffic
+#### Testing on non-malicious traffic
 
 The folder `data/web_browsing_traffic` contains data from normal web browsing, with no malicious activity involved. Although the agent is prompted with a bias toward detecting malicious behavior (as defined in the benchmark), we also evaluated it on this benign scenario.
 
