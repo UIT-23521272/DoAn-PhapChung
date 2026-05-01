@@ -20,3 +20,9 @@ class State_global:
     inputTokens: int = 0 #counter for the input tokens
     outputTokens: int = 0 #counter for the output tokens
     strategy: str = "LLM_summary" #Strategy used for the web search
+    pcap_summary_cache: str = "" #Cached tshark summary to avoid repeated subprocess calls
+    past_search_queries: list = None #List of past web search queries for deduplication
+
+    def __post_init__(self):
+        if self.past_search_queries is None:
+            self.past_search_queries = []

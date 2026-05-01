@@ -74,8 +74,9 @@ async def pcap_flows_reporter(state: State_global, config: RunnableConfig) -> di
     final_report = ""
 
     browsing = os.getenv("DATASET", "").strip().lower() == "web_browsing_events"
-    # This is the full tshark output, already formatted
+    # This is the full tshark output, already formatted (compute once and cache)
     tshark_output = generate_summary(state.pcap_path)
+    pcap_summary_cache = tshark_output  # will be stored in state for reuse by main_agent
     tshark_lines = tshark_output.strip().splitlines()
     # Get a set containing the tcp streams that contain tls traffic
     if not browsing: 
@@ -137,6 +138,7 @@ async def pcap_flows_reporter(state: State_global, config: RunnableConfig) -> di
         "event_id": state.event_id,
         "inputTokens": input_token_count,
         "outputTokens": output_token_count,
+        "pcap_summary_cache": pcap_summary_cache,
     }
 
 
