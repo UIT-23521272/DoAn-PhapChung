@@ -5,6 +5,16 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 from pydantic import BaseModel
 
+try:
+    from ddgs import DDGS
+    DDGS_AVAILABLE = True
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+        DDGS_AVAILABLE = True
+    except ImportError:
+        DDGS_AVAILABLE = False
+
 from langchain_core.tools import Tool
 from .chunking_utils import ChunkingHandler
 from .summarization_utils import SummarizationHandler
@@ -35,7 +45,9 @@ class Context_generator:
         self.current_key_index = 0
 
         if not self.google_keys or not self.google_cse_id:
-            raise ValueError("At least one GOOGLE_API_KEY and GOOGLE_CSE_ID must be set as environment variables.")
+            if not DDGS_AVAILABLE:
+                raise ValueError("At least one GOOGLE_API_KEY and GOOGLE_CSE_ID must be set, or install duckduckgo-search as fallback.")
+            print("No Google API keys found. Will use DuckDuckGo as fallback.")
 
     def is_text_clean(self, text):
         try:
@@ -46,14 +58,26 @@ class Context_generator:
 
     def extract_and_clean_content(self, url):
         try:
-            response = requests.get(url, timeout=10)
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+            response = requests.get(url, timeout=10, headers=headers)
             if not response.headers.get("Content-Type", "").startswith("text/html"):
                 return None
 
             soup = BeautifulSoup(response.content, 'html.parser')
-            for tag in soup(['script', 'style']):
+            for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
                 tag.decompose()
+            
+            # Preserve code blocks and tables which are important for CVE advisories
+            preserved_blocks = []
+            for code_tag in soup.find_all(['pre', 'code']):
+                preserved_blocks.append(f"[CODE] {code_tag.get_text().strip()} [/CODE]")
+            
             text = re.sub(r'\s+', ' ', soup.get_text()).strip()
+            
+            # Append preserved code blocks at the end
+            if preserved_blocks:
+                text += "\n\n--- Extracted Code Blocks ---\n" + "\n".join(preserved_blocks[:5])
+            
             return text if len(text) >= 50 and self.is_text_clean(text) else None
         except Exception:
             return None
@@ -98,8 +122,30 @@ class Context_generator:
                 max_retries -= 1
                 continue
 
-        print("All API keys failed or exhausted.")
-        return []
+        print("All Google API keys failed or exhausted. Falling back to DuckDuckGo...")
+        return self.get_duckduckgo_results(query)
+
+    def get_duckduckgo_results(self, query):
+        if not DDGS_AVAILABLE:
+            print("duckduckgo-search not installed. No results.")
+            return []
+        print("Searching with DuckDuckGo...")
+        documents = []
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=self.n_documents_per_source))
+            for item in tqdm(results, disable=not self.verbose, leave=False):
+                url = item.get("href")
+                if not url:
+                    continue
+                doc = self.extract_and_clean_content(url)
+                if doc:
+                    documents.append((url, doc))
+                if len(documents) >= self.n_documents_per_source:
+                    break
+        except Exception as e:
+            print(f"DuckDuckGo search error: {e}")
+        return documents
 
     def invoke(self, query):
         print("Query:", query)
