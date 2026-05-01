@@ -41,7 +41,11 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
     assert store is not None, "Store not injected!"
 
     # --- FIFO messages ---
-    pcap_content = generate_summary(state.pcap_path)
+    # Use cached pcap summary to avoid running tshark subprocess every reasoning step
+    if state.pcap_summary_cache:
+        pcap_content = state.pcap_summary_cache
+    else:
+        pcap_content = generate_summary(state.pcap_path)
     MAX_FIFO_TOKENS -= count_tokens(pcap_content)
     fifo_token_counter = 0
     fifo_messages_to_be_included = 0
@@ -56,12 +60,27 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
 
     fifo_messages = state.messages[-fifo_messages_to_be_included:]
 
-    queue_lines = [f"Message number {i+1}: {m.content}" for i, m in enumerate(fifo_messages)]
+    # Compress tool results in FIFO queue to save tokens
+    # Only keep first 500 chars of tool responses older than 2 messages
+    queue_lines = []
+    for i, m in enumerate(fifo_messages):
+        content = m.content if hasattr(m, 'content') else str(m)
+        # Compress old tool results (keep recent ones full)
+        is_old = i < len(fifo_messages) - 4
+        if is_old and hasattr(m, 'type') and m.type == 'tool' and len(content) > 500:
+            content = content[:500] + "\n... [truncated for token efficiency]"
+        queue_lines.append(f"Message number {i+1}: {content}")
     queue_str = "\n".join(queue_lines)
 
     # --- Semantic memory ---
+    # Only use assistant reasoning messages for memory search (avoid noisy tool JSON)
     recent_messages = state.messages[-3:]
-    search_query = " ".join([m.content for m in recent_messages if hasattr(m, "content")])
+    search_parts = []
+    for m in recent_messages:
+        if hasattr(m, "content") and hasattr(m, "type"):
+            if m.type in ("ai", "human"):
+                search_parts.append(m.content[:300])
+    search_query = " ".join(search_parts) if search_parts else "forensic analysis"
     results = await store.asearch("memories", query=search_query, limit=10)
 
     working_context_token_counter = 0
@@ -73,7 +92,8 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
         mem_str = f"{content} ({context})"
         tok = count_tokens(mem_str)
         if working_context_token_counter + tok < MAX_WORKING_CONTEXT_TOKENS:
-            working_context.append(f"{mem.key.upper()}: {mem_str}, score={mem.score:.2f}")
+            score_str = f"{mem.score:.2f}" if mem.score is not None else "N/A"
+            working_context.append(f"{mem.key.upper()}: {mem_str}, score={score_str}")
             working_context_token_counter += tok
         else:
             break
@@ -99,8 +119,8 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
     )
 
     system_prompt = SYSTEM_PROMPT.strip()
-    if state.steps in (2, 3):
-        user_prompt += "\n\nWARNING: You are not allowed to reason anymore. Provide the final report based on the available information."
+    if state.steps <= 5:
+        user_prompt += "\n\nWARNING: You are running low on reasoning steps. You MUST call the finalAnswerFormatter tool NOW to provide the final report. Do not make any more searches or memory operations."
 
     messages = [
         {"role": "system", "content": system_prompt},
