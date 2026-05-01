@@ -4,11 +4,17 @@ import re
 import uuid
 import json
 import os
+import sys
 import time
 import numpy as np
 from pathlib import Path
 from datetime import datetime
 import shutil
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if sys.stderr.encoding and sys.stderr.encoding.lower() != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 from langgraph.store.memory import InMemoryStore
 from langchain.embeddings import init_embeddings
@@ -249,7 +255,7 @@ async def run_forensic_example(
     event_id: int,
     pcap_path: str,
     log_dir: str,
-    max_steps: int = 25,
+    max_steps: int = 40,
     strategy: str = "LLM_summary",
 ):
     state = State_global(
