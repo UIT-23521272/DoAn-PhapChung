@@ -15,6 +15,7 @@ This is useful for identifying the main endpoints communicating in a capture and
 """
 
 import subprocess
+from multi_agent.common.utils import _get_tshark_exe
 
 def generate_summary(pcap_file: str) -> str:
     """
@@ -25,7 +26,7 @@ def generate_summary(pcap_file: str) -> str:
         The output of the command.
     """
     try:
-        pcap_command = ['tshark', '-r', pcap_file, '-q', '-z', 'conv,tcp']
+        pcap_command = [_get_tshark_exe(), '-r', pcap_file, '-q', '-z', 'conv,tcp']
 
         result = subprocess.run(
             pcap_command,

@@ -5,6 +5,7 @@ removes duplicates from stream numbers and returns a set of tcp flows that conta
 """
 import subprocess
 from typing import Set
+from multi_agent.common.utils import _get_tshark_exe
 
 def get_tls_streams(pcap_file: str) -> Set[int]:
     """
@@ -17,7 +18,7 @@ def get_tls_streams(pcap_file: str) -> Set[int]:
         Set[int]: A set of TCP stream numbers that contain TLS traffic.
     """
     # Execute the tshark command to get the TCP streams with TLS traffic
-    command = ["tshark", "-r", pcap_file, "-Y", "tls", "-T", "fields", "-e", "tcp.stream"]
+    command = [_get_tshark_exe(), "-r", pcap_file, "-Y", "tls", "-T", "fields", "-e", "tcp.stream"]
     result = subprocess.run(command, capture_output=True, text=True)
 
     # Split the output into lines and convert to a set of integers

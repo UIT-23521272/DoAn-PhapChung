@@ -1,7 +1,34 @@
 """Utility functions used in our graph."""
 import tiktoken
 import subprocess
+import os
 from typing import Optional
+
+
+def _get_tshark_exe() -> str:
+    """
+    Get the tshark executable path.
+    First tries to find tshark in PATH, then falls back to default Windows installation path.
+    """
+    # Try to find tshark in PATH
+    tshark_in_path = None
+    try:
+        result = subprocess.run(["where", "tshark"], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            tshark_in_path = result.stdout.strip().split('\n')[0]
+    except Exception:
+        pass
+    
+    if tshark_in_path:
+        return tshark_in_path
+    
+    # Fallback to Windows default installation path
+    default_tshark = r"C:\Program Files\Wireshark\tshark.exe"
+    if os.path.exists(default_tshark):
+        return default_tshark
+    
+    # Last resort: assume it's in PATH
+    return "tshark"
 
 # This encoding is used for token counting by most of the providers
 encoding = tiktoken.get_encoding("cl100k_base")
@@ -64,7 +91,7 @@ def count_flows(pcap_file: str) -> int:
     in order to get the number of distinct tcp flows in the pcap file.
     Returns the number of distinct tcp flows in the pcap file.
     """
-    cmd = ["tshark", "-r", pcap_file, "-T", "fields", "-e", "tcp.stream"]
+    cmd = [_get_tshark_exe(), "-r", pcap_file, "-T", "fields", "-e", "tcp.stream"]
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     # Split the output into lines and filter out empty lines
@@ -82,7 +109,7 @@ def get_flow(pcap_file: str, stream: int) -> str:
     The flow is extracted using the follow TCP command and is returned as a list of strings.
     Each string in the list represents a block of text that is less than 50,000 tokens.
     """
-    cmd = ["tshark", "-r", pcap_file, "-q", "-z", f"follow,tcp,ascii,{stream}"]
+    cmd = [_get_tshark_exe(), "-r", pcap_file, "-q", "-z", f"follow,tcp,ascii,{stream}"]
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     raw_text = result.stdout
@@ -97,7 +124,7 @@ def concatenate_subflows(pcap_file:str,stream:int)->Optional[str]:
     i = 0
     while True:
         cmd = [
-            "tshark", 
+            _get_tshark_exe(), 
             "-r", pcap_file, 
             "-q", 
             "-z", f"follow,http2,ascii,{stream},{i}", 
@@ -125,7 +152,7 @@ def get_flow_web_browsing(pcap_file: str, stream: int) -> Optional[str]:
     key_file_path = '/'.join(pcap_file.split("/")[:-1]) + "/sslkeylogfile.txt"  
 
     cmd = [
-    "tshark", 
+    _get_tshark_exe(), 
     "-r", pcap_file, 
     "-q", 
     "-z", f"follow,http,ascii,{stream}", 
