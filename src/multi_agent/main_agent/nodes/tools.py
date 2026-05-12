@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from langgraph.store.base import BaseStore
 from langchain.chat_models import init_chat_model
@@ -11,6 +12,10 @@ from multi_agent.main_agent.tools.report import finalAnswerFormatter_func
 from multi_agent.common.global_state import State_global
 from configuration import Configuration
 
+logger = logging.getLogger(__name__)
+
+# Module-level web search cache to avoid redundant API calls
+_web_search_cache: dict[str, tuple[str, int, int]] = {}
 
 
 async def tools(state: State_global, config: RunnableConfig, *, store: BaseStore):
@@ -46,26 +51,44 @@ async def tools(state: State_global, config: RunnableConfig, *, store: BaseStore
             for tc, mem in zip(upsert_calls, saved_memories)
         ])
 
-    # Handle web_quick_search (only one allowed)
+    # Handle web_quick_search (only one allowed) with caching
     web_calls = [tc for tc in tool_calls if tc["name"] == "web_quick_search"]
     if web_calls:
         first_web_call = web_calls[0]
-        configurable = Configuration.from_runnable_config(config)
-        llm = init_chat_model(**split_model_and_provider(configurable.model),timeout=100)
         query_used = first_web_call["args"].get("query", "unknown")
         
-        (response,inCount,outCount) = web_quick_search_func(**first_web_call["args"], llm_model=llm, strategy=state.strategy,context_window_size= configurable.context_window_size)
-        input_tokens_count += inCount
-        output_tokens_count += outCount 
-        response_with_query = (
-            f"Search result for query: '{query_used}'\n{response}"
-        )
-        
-        results.append({
-            "role": "tool",
-            "content": response_with_query,
-            "tool_call_id": first_web_call["id"],
-        })
+        # Check cache first
+        if query_used in _web_search_cache:
+            cached_response, cached_in, cached_out = _web_search_cache[query_used]
+            response_with_query = (
+                f"[CACHED] Search result for query: '{query_used}'\n{cached_response}"
+            )
+            logger.info(f"Web search cache hit: '{query_used}'")
+            results.append({
+                "role": "tool",
+                "content": response_with_query,
+                "tool_call_id": first_web_call["id"],
+            })
+        else:
+            # No cache hit — perform actual search
+            configurable = Configuration.from_runnable_config(config)
+            llm = init_chat_model(**split_model_and_provider(configurable.model),timeout=100)
+            
+            (response, inCount, outCount) = web_quick_search_func(**first_web_call["args"], llm_model=llm, strategy=state.strategy,context_window_size= configurable.context_window_size)
+            input_tokens_count += inCount
+            output_tokens_count += outCount
+            
+            # Cache the result
+            _web_search_cache[query_used] = (response, inCount, outCount)
+            
+            response_with_query = (
+                f"Search result for query: '{query_used}'\n{response}"
+            )
+            results.append({
+                "role": "tool",
+                "content": response_with_query,
+                "tool_call_id": first_web_call["id"],
+            })
 
         if len(web_calls) > 1:
             skipped_calls = len(web_calls) - 1
