@@ -155,6 +155,7 @@ async def tools(state: State_global, config: RunnableConfig, *, store: BaseStore
         "done": done,
         "inputTokens": input_tokens_count,
         "outputTokens": output_tokens_count,
+        "past_search_queries": past_queries,
     }
 
 __all__ = ["tools"]
