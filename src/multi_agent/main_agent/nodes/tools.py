@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig
 
 from multi_agent.common.utils import split_model_and_provider
 from multi_agent.main_agent.tools.memory import upsert_memory_func
+from multi_agent.main_agent.tools.cve_lookup import nvd_cve_lookup_func
 from browser import web_quick_search_func
 from multi_agent.main_agent.tools.report import finalAnswerFormatter_func
 from multi_agent.common.global_state import State_global
@@ -96,6 +97,16 @@ async def tools(state: State_global, config: RunnableConfig, *, store: BaseStore
             }
             for tc, content in zip(final_answer_calls, formatted_answers)
         ])
+     
+    # Handle NVD CVE lookup (direct database query, no Google API needed)
+    nvd_calls = [tc for tc in tool_calls if tc["name"] == "nvd_cve_lookup"]
+    for tc in nvd_calls:
+        nvd_result = nvd_cve_lookup_func(**tc["args"])
+        results.append({
+            "role": "tool",
+            "content": nvd_result,
+            "tool_call_id": tc["id"],
+        })
 
     return {
         "messages": results,
