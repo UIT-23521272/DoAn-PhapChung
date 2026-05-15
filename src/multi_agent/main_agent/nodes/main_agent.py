@@ -7,7 +7,9 @@ from langchain.chat_models import init_chat_model
 from langchain_core.runnables import RunnableConfig
 from langchain_core.callbacks import BaseCallbackHandler
 
+
 from multi_agent.main_agent.tools.memory import upsert_memory
+from multi_agent.main_agent.tools.cve_lookup import nvd_cve_lookup
 from browser import web_quick_search
 from multi_agent.main_agent.tools.pcap import generate_summary 
 from multi_agent.main_agent.tools.report import finalAnswerFormatter
@@ -131,7 +133,7 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
     llm = init_chat_model(**split_model_and_provider(configurable.model), 
                           #temperature=0.0, 
                           timeout=200)
-    llm_with_tools = llm.bind_tools([upsert_memory, web_quick_search, finalAnswerFormatter])
+    llm_with_tools = llm.bind_tools([upsert_memory, web_quick_search, finalAnswerFormatter, nvd_cve_lookup])
     debug_config = RunnableConfig(callbacks=[PromptDebugHandler()])
 
     length_exceeded = False
