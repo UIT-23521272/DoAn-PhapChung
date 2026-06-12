@@ -1,4 +1,5 @@
 from typing import Any
+import os
 import time
 from openai import BadRequestError 
 
@@ -10,13 +11,15 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 from multi_agent.main_agent.tools.memory import upsert_memory
 from multi_agent.main_agent.tools.cve_lookup import nvd_cve_lookup
+from multi_agent.main_agent.tools.ioc_lookup import virustotal_ioc_lookup
 from browser import web_quick_search
 from multi_agent.main_agent.tools.pcap import generate_summary 
-from multi_agent.main_agent.tools.report import finalAnswerFormatter
+from multi_agent.main_agent.tools.report import finalAnswerFormatter, malwareFinalAnswerFormatter
 from multi_agent.common.global_state import State_global
 from configuration import Configuration
 from multi_agent.common.utils import count_tokens, split_model_and_provider
 from multi_agent.main_agent.prompts import SYSTEM_PROMPT, USER_PROMPT
+from multi_agent.main_agent.prompts_malware import SYSTEM_PROMPT_MALWARE, USER_PROMPT_MALWARE
 
 
 
@@ -113,16 +116,41 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
     else:
         memories_str = ""
 
-    # --- Prompt construction ---
-    user_prompt = USER_PROMPT.format(
-        pcap_content=pcap_content,
-        memories=memories_str,
-        queue=queue_str
-    )
+    # --- Prompt construction (switches based on DATASET env var) ---
+    dataset = os.getenv("DATASET", "CFA")
+    is_malware_mode = dataset == "malware_traffic"
 
-    system_prompt = SYSTEM_PROMPT.strip()
+    if is_malware_mode:
+        active_system_prompt = SYSTEM_PROMPT_MALWARE.strip()
+        active_user_prompt = USER_PROMPT_MALWARE.format(
+            pcap_content=pcap_content,
+            memories=memories_str,
+            queue=queue_str,
+        )
+        low_steps_warning = (
+            "\n\nWARNING: You are running low on reasoning steps. "
+            "You MUST call the malware_final_answer_formatter tool NOW to provide the final report. "
+            "Do not make any more searches or memory operations."
+        )
+        active_tools = [upsert_memory, web_quick_search, virustotal_ioc_lookup, malwareFinalAnswerFormatter]
+    else:
+        active_system_prompt = SYSTEM_PROMPT.strip()
+        active_user_prompt = USER_PROMPT.format(
+            pcap_content=pcap_content,
+            memories=memories_str,
+            queue=queue_str,
+        )
+        low_steps_warning = (
+            "\n\nWARNING: You are running low on reasoning steps. "
+            "You MUST call the finalAnswerFormatter tool NOW to provide the final report. "
+            "Do not make any more searches or memory operations."
+        )
+        active_tools = [upsert_memory, web_quick_search, finalAnswerFormatter, nvd_cve_lookup]
+
+    user_prompt = active_user_prompt
+    system_prompt = active_system_prompt
     if state.steps <= 5:
-        user_prompt += "\n\nWARNING: You are running low on reasoning steps. You MUST call the finalAnswerFormatter tool NOW to provide the final report. Do not make any more searches or memory operations."
+        user_prompt += low_steps_warning
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -133,7 +161,7 @@ async def main_agent(state: State_global, config: RunnableConfig, *, store: Base
     llm = init_chat_model(**split_model_and_provider(configurable.model), 
                           #temperature=0.0, 
                           timeout=200)
-    llm_with_tools = llm.bind_tools([upsert_memory, web_quick_search, finalAnswerFormatter, nvd_cve_lookup])
+    llm_with_tools = llm.bind_tools(active_tools)
     debug_config = RunnableConfig(callbacks=[PromptDebugHandler()])
 
     length_exceeded = False

@@ -9,8 +9,9 @@ from langchain_core.runnables import RunnableConfig
 from multi_agent.common.utils import split_model_and_provider
 from multi_agent.main_agent.tools.memory import upsert_memory_func
 from multi_agent.main_agent.tools.cve_lookup import nvd_cve_lookup_func
+from multi_agent.main_agent.tools.ioc_lookup import virustotal_ioc_lookup_func
 from browser import web_quick_search_func
-from multi_agent.main_agent.tools.report import finalAnswerFormatter_func
+from multi_agent.main_agent.tools.report import finalAnswerFormatter_func, malwareFinalAnswerFormatter_func
 from multi_agent.common.global_state import State_global
 from configuration import Configuration
 
@@ -157,6 +158,30 @@ async def tools(state: State_global, config: RunnableConfig, *, store: BaseStore
         results.append({
             "role": "tool",
             "content": nvd_result,
+            "tool_call_id": tc["id"],
+        })
+
+    # Handle virustotal_ioc_lookup (malware mode)
+    vt_calls = [tc for tc in tool_calls if tc["name"] == "virustotal_ioc_lookup"]
+    for tc in vt_calls:
+        vt_result = virustotal_ioc_lookup_func(**tc["args"])
+        results.append({
+            "role": "tool",
+            "content": vt_result,
+            "tool_call_id": tc["id"],
+        })
+
+    # Handle malware_final_answer_formatter (malware mode)
+    malware_final_calls = [tc for tc in tool_calls if tc["name"] == "malware_final_answer_formatter"]
+    if len(malware_final_calls) > 1:
+        raise ValueError("malware_final_answer_formatter called more than once")
+    if malware_final_calls:
+        tc = malware_final_calls[0]
+        formatted = malwareFinalAnswerFormatter_func(**tc["args"])
+        done = True
+        results.append({
+            "role": "tool",
+            "content": formatted,
             "tool_call_id": tc["id"],
         })
 
